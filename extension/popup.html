@@ -1,0 +1,262 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Data For Good</title>
+    <style>
+        body {
+            width: 360px;
+            min-height: 400px;
+            margin: 0;
+            padding: 20px;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+        }
+        
+        .container {
+            text-align: center;
+        }
+        
+        .logo {
+            width: 60px;
+            height: 60px;
+            margin: 0 auto 20px;
+            background: rgba(255, 255, 255, 0.2);
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 24px;
+        }
+        
+        h1 {
+            font-size: 20px;
+            margin: 0 0 10px 0;
+            font-weight: 600;
+        }
+        
+        .subtitle {
+            font-size: 14px;
+            opacity: 0.9;
+            margin-bottom: 25px;
+        }
+        
+        .status-card {
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 12px;
+            padding: 20px;
+            margin-bottom: 20px;
+            backdrop-filter: blur(10px);
+        }
+        
+        .status {
+            font-size: 16px;
+            font-weight: 500;
+            margin-bottom: 10px;
+        }
+        
+        .status.active {
+            color: #4ade80;
+        }
+        
+        .status.inactive {
+            color: #f87171;
+        }
+        
+        .toggle-btn {
+            background: #10b981;
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 500;
+            transition: all 0.3s ease;
+            width: 100%;
+        }
+        
+        .toggle-btn:hover {
+            background: #059669;
+            transform: translateY(-1px);
+        }
+        
+        .toggle-btn.stop {
+            background: #ef4444;
+        }
+        
+        .toggle-btn.stop:hover {
+            background: #dc2626;
+        }
+        
+        .stats {
+            margin-top: 20px;
+            text-align: left;
+        }
+        
+        .stat-row {
+            display: flex;
+            justify-content: space-between;
+            margin: 8px 0;
+            font-size: 14px;
+        }
+        
+        .consent-section {
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 12px;
+            padding: 20px;
+            margin-bottom: 20px;
+            text-align: left;
+        }
+        
+        .consent-title {
+            font-weight: 600;
+            margin-bottom: 10px;
+            font-size: 16px;
+        }
+        
+        .consent-text {
+            font-size: 12px;
+            line-height: 1.4;
+            margin-bottom: 15px;
+            opacity: 0.9;
+        }
+        
+        .consent-checkbox {
+            display: flex;
+            align-items: center;
+            margin-bottom: 10px;
+        }
+        
+        .consent-checkbox input {
+            margin-right: 8px;
+        }
+        
+        .consent-checkbox label {
+            font-size: 12px;
+            line-height: 1.3;
+        }
+        
+        .gamification {
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 12px;
+            padding: 20px;
+            margin-bottom: 20px;
+        }
+        
+        .level-display {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 15px;
+        }
+        
+        .level-badge {
+            background: #fbbf24;
+            color: #1f2937;
+            padding: 4px 12px;
+            border-radius: 20px;
+            font-size: 12px;
+            font-weight: 600;
+        }
+        
+        .points {
+            font-size: 18px;
+            font-weight: 600;
+        }
+        
+        .progress-bar {
+            width: 100%;
+            height: 8px;
+            background: rgba(255, 255, 255, 0.2);
+            border-radius: 4px;
+            overflow: hidden;
+        }
+        
+        .progress-fill {
+            height: 100%;
+            background: linear-gradient(90deg, #10b981, #34d399);
+            transition: width 0.3s ease;
+        }
+        
+        .footer {
+            font-size: 11px;
+            opacity: 0.7;
+            margin-top: 20px;
+        }
+        
+        .hidden {
+            display: none;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="logo">📊</div>
+        <h1>Data Donation Tool</h1>
+        <p class="subtitle">Help research by sharing anonymized social media interaction data</p>
+        
+        <div id="consentSection" class="consent-section">
+            <div class="consent-title">Data Donation Consent</div>
+            <div class="consent-text">
+                By using this extension, you agree to donate anonymized data about your social media interactions. This includes:
+                <br>• Post engagement times (likes, shares, comments)
+                <br>• Content type interactions (text, image, video)
+                <br>• Scroll behavior and viewing duration
+                <br>• Platform usage patterns
+                <br><br>
+                All data is anonymized and used for research purposes only.
+            </div>
+            <div class="consent-checkbox">
+                <input type="checkbox" id="consentCheck" name="consentCheck">
+                <label for="consentCheck">I consent to donate my anonymized social media interaction data</label>
+            </div>
+            <div class="consent-checkbox">
+                <input type="checkbox" id="privacyCheck" name="privacyCheck">
+                <label for="privacyCheck">I understand that my data will be anonymized and used for research</label>
+            </div>
+        </div>
+        
+        <div id="mainInterface" class="hidden">
+            <div class="status-card">
+                <div id="statusText" class="status inactive">Collection Stopped</div>
+                <button id="toggleBtn" class="toggle-btn">Start Data Collection</button>
+            </div>
+            
+            <div class="gamification">
+                <div class="level-display">
+                    <span class="level-badge" id="levelBadge">Level 1</span>
+                    <span class="points" id="pointsDisplay">0 pts</span>
+                </div>
+                <div class="progress-bar">
+                    <div class="progress-fill" id="progressFill" style="width: 0%"></div>
+                </div>
+            </div>
+            
+            <div class="stats">
+                <div class="stat-row">
+                    <span>Sessions Today:</span>
+                    <span id="sessionsToday">0</span>
+                </div>
+                <div class="stat-row">
+                    <span>Data Points:</span>
+                    <span id="dataPoints">0</span>
+                </div>
+                <div class="stat-row">
+                    <span>Current Platform:</span>
+                    <span id="currentPlatform">None</span>
+                </div>
+            </div>
+        </div>
+        
+        <div class="footer">
+            Open-source project by SimPPL<br>
+            Your privacy is protected through anonymization
+        </div>
+    </div>
+    
+    <script src="popup.js"></script>
+</body>
+</html>
