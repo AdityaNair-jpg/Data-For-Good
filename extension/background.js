@@ -76,18 +76,24 @@ class BackgroundService {
     }
     
     async startCollection() {
+        if (this.isCollecting) return; // Prevent duplicate starts
         this.isCollecting = true;
         this.sessionId = this.generateSessionId();
         await this.updateUserStats('sessionsToday', 1);
         console.log('Data collection started');
+        // Sync state with storage
+        await chrome.storage.sync.set({ isCollecting: true });
     }
     
     async stopCollection() {
+        if (!this.isCollecting) return; // Prevent duplicate stops
         this.isCollecting = false;
         if (this.dataBuffer.length > 0) {
             await this.syncData();
         }
         console.log('Data collection stopped');
+        // Sync state with storage
+        await chrome.storage.sync.set({ isCollecting: false });
     }
     
     handleCollectionStateChange() {

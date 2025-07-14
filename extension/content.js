@@ -18,6 +18,11 @@ console.log('[DataForGood] content.js loaded');
     document.body.appendChild(marker);
     setTimeout(() => marker.remove(), 5000);
 })();
+// Singleton pattern to ensure only one collector instance
+if (window._dfgCollectorInstance) {
+    window._dfgCollectorInstance.stopCollection && window._dfgCollectorInstance.stopCollection();
+}
+
 class ContentDataCollector {
     constructor() {
         this.isCollecting = false;
@@ -84,16 +89,19 @@ class ContentDataCollector {
                     this.stopCollection();
                     sendResponse({ success: true });
                     break;
+                default:
+                    sendResponse({ error: 'Unknown action' });
             }
+            return true; // Keep message channel open
         });
     }
     
     async checkCollectionStatus() {
         try {
-            const response = await chrome.runtime.sendMessage({ action: 'getPlatformInfo' });
-            if (response && response.platform) {
-                // Check if collection is active
-                // This will be handled by the background script state
+            // Check if collection is already active
+            const result = await chrome.storage.sync.get(['isCollecting']);
+            if (result.isCollecting) {
+                this.startCollection();
             }
         } catch (error) {
             console.error('Error checking collection status:', error);
@@ -121,7 +129,7 @@ class ContentDataCollector {
     }
     
     setupObservers() {
-        console.log('[DataForGood] setupObservers called for platform:', this.platform, 'isCollecting:', this.isCollecting);
+        console.log('[DataForGood][DEBUG] setupObservers called for platform:', this.platform, 'isCollecting:', this.isCollecting);
         this.cleanupObservers(); // Clean up any existing observers
         
         // Set up platform-specific observers
@@ -370,6 +378,7 @@ class ContentDataCollector {
     handleInstagramPostIntersect(entries) {
         entries.forEach(entry => {
             if (entry.isIntersecting) {
+                console.log('[DataForGood][DEBUG] Instagram post in view:', entry.target);
                 // User started viewing a post
                 if (this.currentInstagramPost !== entry.target) {
                     // If we were viewing another post, send its data
@@ -786,11 +795,15 @@ class ContentDataCollector {
     }
     
     async sendDataPoint(data) {
-        if (!this.isCollecting) return;
+        if (!this.isCollecting) {
+            console.log('[DataForGood][DEBUG] sendDataPoint called but isCollecting is false');
+            return;
+        }
 
         // Only allow tweet, image, or video content types
         const allowedTypes = ['tweet', 'image', 'video', 'instagram-post'];
         if (!allowedTypes.includes(data.contentType)) {
+            console.log('[DataForGood][DEBUG] sendDataPoint: contentType not allowed:', data.contentType);
             return; // Skip sending this data point
         }
 
@@ -831,6 +844,7 @@ class ContentDataCollector {
                     url: window.location.href
                 }
             });
+            console.log('[DataForGood][DEBUG] sendDataPoint: data sent to background');
         } catch (error) {
             console.error('Error sending data point:', error);
         }
@@ -858,7 +872,7 @@ class ContentDataCollector {
                 lastPath = window.location.pathname;
                 console.log('[DataForGood] Detected SPA navigation to', lastPath);
                 this.detectPlatform();
-                // Always re-setup observers for new view if collecting
+                // Only restart observers if collecting
                 if (this.isCollecting) {
                     this.setupObservers();
                 }
@@ -867,11 +881,11 @@ class ContentDataCollector {
     }
 }
 
-// Initialize content collector when DOM is ready
+// Initialize content collector when DOM is ready, using singleton
 if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', () => {
-        new ContentDataCollector();
+        window._dfgCollectorInstance = new ContentDataCollector();
     });
 } else {
-    new ContentDataCollector();
+    window._dfgCollectorInstance = new ContentDataCollector();
 }

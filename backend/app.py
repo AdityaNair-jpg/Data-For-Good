@@ -107,7 +107,7 @@ def safe_print_item(item, item_index=None):
                 summary_parts.append(f"{key}=<error_printing_value>")
         
         print(" ".join(summary_parts))
-    except Exception as e:
+    except Exception as e: 
         print(f"Error in safe_print_item: {e}")
         print(f"Item type: {type(item)}")
 
@@ -117,7 +117,7 @@ def classify_image_with_gemini(image_bytes):
         return 'unknown'
     prompt = (
         "Classify this image into one of these topics: "
-        "sports, food, fashion, nature, politics, technology, music, travel, art, animals, memes, science, history, health, business, religion, philosophy, literature, mathematics, physics, chemistry, biology, geology, astronomy, environment, technology, engineering, medicine, law, education, psychology, sociology, economics, finance, marketing, management, entrepreneurship. "
+        "sports, food, fashion, nature, politics, drama, funny, technology, music, travel, art, animals, memes, science, history, health, business, religion, philosophy, literature, mathematics, physics, chemistry, biology, geology, astronomy, environment, technology, engineering, medicine, law, education, psychology, sociology, economics, finance, marketing, management, entrepreneurship. "
         "Return only the topic label."
     )
     try:
@@ -198,6 +198,28 @@ def process_item(item):
     return topic
 
 
+def append_to_session_file(session_id, post_data):
+    """Append post_data to the session's file in S3 (data/{session_id}.json)"""
+    s3_key = f"data/{session_id}.json"
+    try:
+        # Try to get the existing file
+        obj = s3.get_object(Bucket=S3_BUCKET, Key=s3_key)
+        session_data = json.loads(obj['Body'].read())
+        if not isinstance(session_data, list):
+            session_data = []
+    except s3.exceptions.NoSuchKey:
+        session_data = []
+    except Exception as e:
+        print(f"Error reading session file {s3_key}: {e}")
+        session_data = []
+    session_data.append(post_data)
+    try:
+        s3.put_object(Bucket=S3_BUCKET, Key=s3_key, Body=json.dumps(session_data, indent=2))
+        print(f"Appended post to {s3_key} (total posts: {len(session_data)})")
+    except Exception as e:
+        print(f"Error writing session file {s3_key}: {e}")
+
+
 @app.route('/collect', methods=['POST'])
 def collect():
     try:
@@ -249,14 +271,10 @@ def collect():
                 else:
                     safe_item[key] = value
             
-            filename = f"data/{uuid.uuid4()}.json"
-            s3.put_object(
-                Bucket=S3_BUCKET,
-                Key=filename,
-                Body=json.dumps(safe_item)
-            )
-            print(f"Uploaded {filename} to S3 with topic: {topic}")
-            results.append({'file': filename, 'topic': topic})
+            # Use sessionId to aggregate posts in a single file
+            session_id = safe_item.get('sessionId', 'unknown_session')
+            append_to_session_file(session_id, safe_item)
+            results.append({'session_file': f"data/{session_id}.json", 'topic': topic})
         
         return jsonify({'status': 'success', 'results': results})
         
