@@ -1,201 +1,190 @@
-# Social Media Data Donation Browser Extension
+# Social Media Data Donation Extension
 
 ## Overview
 
-This open-source browser extension allows users to voluntarily donate their anonymized social media interaction data to help researchers understand user engagement patterns across different platforms. The extension is designed to be privacy-focused, transparent, and community-driven.
+**Social Media Data Donation** is an open-source browser extension and backend system that enables users to voluntarily and anonymously donate their social media interaction data from Instagram and X (Twitter). The project aims to help researchers and data scientists understand user engagement patterns, content trends, and platform dynamics, while prioritizing user privacy and transparency.
+
+---
+
+## Table of Contents
+
+- [How It Works](#how-it-works)
+- [Features](#features)
+- [Tech Stack](#tech-stack)
+- [Architecture & Workflow](#architecture--workflow)
+- [Key Facts](#key-facts)
+- [Diagrams](#diagrams)
+- [Things That Can Be Improved](#things-that-can-be-improved)
+- [Getting Started](#getting-started)
+- [Contributing](#contributing)
+- [License](#license)
+
+---
+
+## How It Works
+
+1. **User installs the browser extension** (Chrome/Edge/Brave).
+2. **Extension injects content scripts** into Instagram and X (Twitter) pages.
+3. **User interactions** (views, likes, comments, shares, time spent, etc.) are detected in real time using DOM observers.
+4. **Data is anonymized** in the background script, batched, and sent to a Python backend.
+5. **Backend classifies content topics** using AI models (Hugging Face, Google Gemini), aggregates data by session, and stores it in AWS S3.
+6. **Gamification**: Users earn points and tiers for their contributions, visible in the extension popup.
+
+---
 
 ## Features
 
-- **Multi-platform support**: Works on Twitter/X, Facebook, Instagram, and LinkedIn
-- **Privacy-first**: All data is anonymized before collection
-- **Explicit consent**: Users must explicitly consent before any data collection begins
-- **Gamification**: Optional point system and levels to encourage participation
-- **Cross-browser compatibility**: Supports Chrome and Safari using WebExtension standards
-- **Open source**: Fully transparent codebase for community contributions
+- **Multi-Platform Support**: Tracks Instagram and X (Twitter) interactions.
+- **Anonymized Data Collection**: No personal identifiers are stored.
+- **Rich Interaction Tracking**: Views, likes, comments, shares, time spent, media engagement, etc.
+- **Content Classification**: Uses AI to classify post topics (zero-shot, image classification).
+- **Session-Based Aggregation**: Data is grouped by session for richer analytics.
+- **Gamification**: Points and tier system to encourage participation.
+- **User Consent & Privacy**: Data collection is opt-in and transparent.
+- **Robust Error Handling**: Handles SPA navigation, network errors, and browser quirks.
+- **Scalable Backend**: Asynchronous processing, AWS S3 storage, and extensible architecture.
 
-## Installation
+---
 
-### From Source
+## Tech Stack
 
-1. Clone this repository:
-   ```bash
-   git clone https://github.com/your-org/social-media-data-donation.git
-   cd social-media-data-donation
-   ```
+- **Frontend (Extension)**
+  - JavaScript (ES6+)
+  - Chrome Extension APIs (Manifest V3)
+  - DOM APIs (MutationObserver, IntersectionObserver)
+  - HTML/CSS for popup UI
 
-2. **For Chrome:**
-   - Open Chrome and go to `chrome://extensions/`
-   - Enable "Developer mode"
-   - Click "Load unpacked" and select the project directory
+- **Backend**
+  - Python 3
+  - Flask (REST API)
+  - ThreadPoolExecutor (async processing)
+  - Hugging Face Transformers (zero-shot classification)
+  - Google Gemini Vision API (image classification)
+  - AWS S3 (data storage)
+  - Docker (optional, for deployment)
 
-3. **For Safari:**
-   - Open Safari and go to Safari → Preferences → Advanced
-   - Enable "Show Develop menu in menu bar"
-   - Go to Develop → Allow Unsigned Extensions
-   - Go to Safari → Preferences → Extensions
-   - Click "Load Unpacked Extension" and select the project directory
+---
 
-## Usage
+## Architecture & Workflow
 
-### Initial Setup
-
-1. Click the extension icon in your browser toolbar
-2. Read and accept the data donation consent agreement
-3. Confirm your understanding of data anonymization
-4. Start data collection by clicking "Start Data Collection"
-
-### Data Collection
-
-The extension automatically collects anonymized data about:
-
-- **Post interactions**: Likes, shares, comments, and views
-- **Content engagement**: Time spent viewing posts, scroll behavior
-- **Content types**: Text, images, videos, and their engagement patterns
-- **Platform behavior**: Navigation patterns and session duration
-- **Performance metrics**: Page load times and interaction responsiveness
-
-### Gamification Features
-
-- **Points system**: Earn points for different types of interactions
-- **Levels**: Progress through levels based on accumulated points
-- **Stats tracking**: View your daily sessions and data contribution statistics
-
-## Privacy & Security
-
-### Data Anonymization
-
-All collected data is automatically anonymized:
-
-- **No personal identifiers**: Names, usernames, and profile information are excluded
-- **Content anonymization**: Actual post content is not collected, only metadata
-- **Hashed user agents**: Browser fingerprints are hashed for privacy
-- **Randomized session IDs**: Each session gets a unique, non-traceable identifier
-
-### Data Transmitted
-
-The extension only transmits:
-- Content type (text, image, video)
-- Interaction type (like, share, comment, view)
-- Timing information (duration, timestamp)
-- Platform information (Twitter, Facebook, etc.)
-- Engagement metrics (scroll depth, view duration)
-
-### Data NOT Transmitted
-
-- Personal information (names, emails, profiles)
-- Actual post content or comments
-- Private messages or conversations
-- Location data
-- Friends/followers lists
-- Account credentials
-
-## Technical Architecture
-
-### Core Components
-
-1. **Manifest (manifest.json)**: Extension configuration and permissions
-2. **Background Script (background.js)**: Data processing and API communication
-3. **Content Script (content.js)**: Platform-specific data collection
-4. **Popup Interface (popup.html/js)**: User interface and consent management
-5. **Injected Script (injected.js)**: Deep platform integration helpers
-
-### Data Flow
+### High-Level Workflow
 
 ```
-User Interaction → Content Script → Background Script → API Endpoint
-                ↓
-        Anonymization → Storage Buffer → Periodic Sync
+User Browses Instagram/X → Content Script Observes Interactions → Background Script Anonymizes & Buffers Data → Batch Sent to Backend API → Backend Classifies & Aggregates Data → Data Stored in AWS S3 → Gamification: Points & Tiers Updated → Popup UI Shows Progress
 ```
 
-### Platform Support
+### Detailed Steps
 
-#### Twitter/X
-- Tweet interactions (likes, retweets, replies)
-- Timeline scrolling behavior
-- Media content engagement
-- Thread reading patterns
+1. **Content Script**  
+   - Detects posts, tracks views, likes, comments, shares, and time spent.
+   - Handles SPA navigation and dynamic content loading.
 
-#### Facebook
-- Post interactions (likes, comments, shares)
-- Feed scrolling behavior
-- Story and reel engagement
-- News feed navigation
+2. **Background Script**  
+   - Buffers and anonymizes data.
+   - Adds session IDs, timestamps, and hashes user agent.
+   - Implements points and tier logic.
+   - Syncs data to backend in small batches.
 
-#### Instagram
-- Post interactions (likes, comments, saves)
-- Story viewing patterns
-- Reel engagement
-- Explore page behavior
+3. **Backend (Flask API)**
+   - Receives data batches.
+   - Classifies text with Hugging Face zero-shot models.
+   - Classifies images with Google Gemini Vision API.
+   - Aggregates data by session and stores in AWS S3.
 
-#### LinkedIn
-- Post interactions (likes, comments, shares)
-- Article reading behavior
-- Professional content engagement
-- Feed navigation patterns
+4. **Gamification**
+   - Points awarded for each interaction.
+   - Tier (level) increases every 100 points.
+   - Stats are shown in the extension popup.
 
-## API Integration
+---
 
-### Data Submission Format
+## Key Facts
 
-```json
-{
-  "sessionId": "session_1234567890_abc123",
-  "timestamp": 1641234567890,
-  "platform": "Twitter",
-  "contentType": "tweet",
-  "actionType": "like",
-  "duration": 2500,
-  "scrollDepth": 45,
-  "engagementLevel": "medium",
-  "hasMedia": true,
-  "contentLength": 280,
-  "timeOfDay": 14,
-  "dayOfWeek": 2,
-  "userAgent": "hashed_value",
-  "screenResolution": "1920x1080",
-  "timezone": "America/New_York"
-}
+- **Privacy-First**: No usernames, emails, or direct identifiers are ever stored.
+- **Session-Based**: Data is grouped by session, not by user.
+- **Extensible**: Easy to add new platforms, interaction types, or analytics.
+- **Open Source**: All code is available for review and contribution.
+
+---
+
+## Diagrams
+
+### System Architecture
+
+```mermaid
+graph LR
+    A[Browser Extension] -- Data (anonymized) --> B[Flask Backend]
+    B -- Classified & Aggregated Data --> C[AWS S3]
+    A -- Gamification Stats <--> D[Popup UI]
+    B -- AI Models --> E[Hugging Face / Gemini]
 ```
 
-### API Endpoints
+### Extension Data Flow
 
-Replace the `sendToAPI` function in `background.js` with your actual API endpoint:
+```mermaid
+sequenceDiagram
+    participant User
+    participant ContentScript
+    participant BackgroundScript
+    participant Backend
+    participant S3
 
-```javascript
-async sendToAPI(data) {
-    const response = await fetch('https://your-api-endpoint.com/data', {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/json',
-            'Authorization': 'Bearer YOUR_API_KEY'
-        },
-        body: JSON.stringify(data)
-    });
-    
-    return response.json();
-}
+    User->>ContentScript: Browses/Interacts
+    ContentScript->>BackgroundScript: Send interaction data
+    BackgroundScript->>Backend: Batch & anonymized data
+    Backend->>Backend: Classify & aggregate
+    Backend->>S3: Store session data
+    BackgroundScript->>Popup: Update points/tier
 ```
 
-## Development
+---
 
-### Project Structure
+## Things That Can Be Improved
 
-```
-social-media-data-donation/
-├── manifest.json          # Extension manifest
-├── background.js          # Background service worker
-├── content.js            # Content script
-├── popup.html            # Extension popup interface
-├── popup.js              # Popup logic
-├── injected.js           # Injected helper script
-├── icons/                # Extension icons
-│   ├── icon16.png
-│   ├── icon48.png
-│   └── icon128.png
-└── README.md             # This file
-```
+- **UI/UX**: Add more visual feedback, badge icons, and progress bars in the popup.
+- **More Gamification**: Add badges, streaks, and leaderboards.
+- **User Data Export**: Let users export their own anonymized data.
+- **More AI Models**: Use additional models for sentiment, toxicity, or trend detection.
+- **Performance**: Optimize for very large data volumes or slow networks.
+- **Mobile Support**: Extend to mobile browsers (if possible).
+- **Automated Testing**: Add unit and integration tests for extension and backend.
+- **Deployment**: Provide Docker Compose or cloud deployment scripts.
 
-### Adding New Platforms
+---
 
-1. Add platform URL patterns to `manifest.json`
-2. Implement platform-specific observers in
+## Getting Started
+
+### Prerequisites
+
+- Node.js & npm (for extension development)
+- Python 3.8+ (for backend)
+- AWS account (for S3 storage)
+- Hugging Face and Google Gemini API keys (for classification)
+
+### Setup
+
+#### 1. Extension
+- Load the `extension/` folder as an unpacked extension in Chrome.
+- Update `manifest.json` as needed.
+
+#### 2. Backend
+- Install dependencies:  
+  `pip install -r backend/requirements.txt`
+- Set environment variables for AWS and API keys.
+- Run the backend:  
+  `python backend/app.py`
+
+#### 3. Connect Extension to Backend
+- Ensure the backend URL in `background.js` matches your backend server.
+
+---
+
+## Contributing
+
+Contributions are welcome! Please open issues or pull requests for bug fixes, new features, or documentation improvements.
+
+---
+
+## License
+
+MIT License
