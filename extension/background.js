@@ -209,19 +209,18 @@ class BackgroundService {
         try {
             const result = await chrome.storage.sync.get(['userStats']);
             const userStats = result.userStats || {};
-            
             if (stat === 'sessionsToday') {
                 const today = new Date().toDateString();
                 const lastSessionDate = userStats.lastSessionDate;
-                
                 if (lastSessionDate !== today) {
-                    userStats.sessionsToday = 0;
+                    userStats.sessionsToday = 1; // Start at 1 for the new day
                     userStats.lastSessionDate = today;
+                } else {
+                    userStats.sessionsToday = (userStats.sessionsToday || 0) + increment;
                 }
+            } else {
+                userStats[stat] = (userStats[stat] || 0) + increment;
             }
-            
-            userStats[stat] = (userStats[stat] || 0) + increment;
-            
             await chrome.storage.sync.set({ userStats });
         } catch (error) {
             console.error('Error updating user stats:', error);
