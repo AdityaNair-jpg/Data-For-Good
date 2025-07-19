@@ -1,4 +1,5 @@
 // Background service worker for Social Media Data Donation extension
+const DEV_MODE = true;
 class BackgroundService {
     constructor() {
         this.dataBuffer = [];
@@ -49,29 +50,30 @@ class BackgroundService {
     }
     
     async handleMessage(message, sender, sendResponse) {
-        switch (message.action) {
-            case 'startCollection':
-                await this.startCollection();
-                sendResponse({ success: true });
-                break;
-                
-            case 'stopCollection':
-                await this.stopCollection();
-                sendResponse({ success: true });
-                break;
-                
-            case 'dataPoint':
-                console.log('Background received dataPoint:', message.data);
-                await this.recordDataPoint(message.data, sender);
-                sendResponse({ success: true });
-                break;
-                
-            case 'getPlatformInfo':
-                sendResponse(this.getPlatformInfo(sender.tab.url));
-                break;
-                
-            default:
-                sendResponse({ error: 'Unknown action' });
+        try {
+            switch (message.action) {
+                case 'startCollection':
+                    await this.startCollection();
+                    sendResponse({ success: true });
+                    break;
+                case 'stopCollection':
+                    await this.stopCollection();
+                    sendResponse({ success: true });
+                    break;
+                case 'dataPoint':
+                    console.log('Background received dataPoint:', message.data);
+                    await this.recordDataPoint(message.data, sender);
+                    sendResponse({ success: true });
+                    break;
+                case 'getPlatformInfo':
+                    sendResponse(this.getPlatformInfo(sender.tab.url));
+                    break;
+                default:
+                    sendResponse({ error: 'Unknown action' });
+            }
+        } catch (error) {
+            console.error('Error in handleMessage:', error);
+            sendResponse({ success: false, error: error.message });
         }
     }
     
@@ -118,14 +120,24 @@ class BackgroundService {
         const platformInfo = this.getPlatformInfo(sender.tab.url);
         await this.updateCurrentPlatform(platformInfo.platform);
         // Auto-sync if buffer is getting large
-        if (this.dataBuffer.length >= 50) {
+        if (this.dataBuffer.length >= 3) {
             await this.syncData();
         }
     }
     
     anonymizeData(data, sender) {
-        console.log('anonymizeData input:', data);
+        if (!this.sessionId) {
+            this.sessionId = this.generateSessionId();
+            if (DEV_MODE) {
+                console.warn('SessionId was null, generated a new one:', this.sessionId);
+            }
+        }
         const platformInfo = this.getPlatformInfo(sender.tab.url);
+        // Extract interaction fields
+        const interactions = data.interactions || {};
+        const liked = interactions.liked || false;
+        const commented = interactions.commented || false;
+        const shared = interactions.shared || interactions.retweeted || false;
         
         return {
             sessionId: this.sessionId,
@@ -143,7 +155,10 @@ class BackgroundService {
             timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
             text: data.text || '',
             imageUrl: data.imageUrl || '',
-            mediaUrl: data.mediaUrl || ''
+            mediaUrl: data.mediaUrl || '',
+            liked,
+            commented,
+            shared
         };
     }
     
@@ -151,17 +166,13 @@ class BackgroundService {
         const platforms = {
             'twitter.com': 'Twitter',
             'x.com': 'X',
-            'facebook.com': 'Facebook',
-            'instagram.com': 'Instagram',
-            'linkedin.com': 'LinkedIn'
+            'instagram.com': 'Instagram'
         };
-        
         for (const [domain, platform] of Object.entries(platforms)) {
             if (url.includes(domain)) {
                 return { platform, domain };
             }
         }
-        
         return { platform: 'Unknown', domain: 'unknown' };
     }
     
@@ -249,8 +260,45 @@ class BackgroundService {
         }
     }
     
+    // Helper function to log array in multi-line compact format
+    logArrayMultiLine(arr) {
+        if (!Array.isArray(arr)) {
+            console.log(JSON.stringify(arr));
+            return;
+        }
+        let lines = ['['];
+        for (let i = 0; i < arr.length; i++) {
+            let line = JSON.stringify(arr[i]);
+            if (i < arr.length - 1) line += ',';
+            lines.push(line);
+        }
+        lines.push(']');
+        console.log(lines.join('\n'));
+    }
+
+    // Helper function to log array with each object on a single line (no pretty-printing)
+    logArrayObjectsSingleLine(arr) {
+        if (!Array.isArray(arr)) {
+            console.log(JSON.stringify(arr));
+            return;
+        }
+        // If array is short, log as a single line
+        const singleLine = '[' + arr.map(obj => JSON.stringify(obj)).join(',') + ']';
+        if (singleLine.length < 200) {
+            console.log(singleLine);
+        } else {
+            // Otherwise, log as multi-line, each object on a single line
+            console.log('[\n' + arr.map(obj => JSON.stringify(obj)).join(',\n') + '\n]');
+        }
+    }
+
     async sendToAPI(data) {
-        console.log('Sending to backend:', data);
+        // Log arrays with each object on a single line, no pretty-printing
+        if (Array.isArray(data)) {
+            this.logArrayObjectsSingleLine(data);
+        } else {
+            console.log(JSON.stringify(data));
+        }
         try {
             const response = await fetch('http://127.0.0.1:5000/collect', {
                 method: 'POST',
@@ -275,6 +323,12 @@ class BackgroundService {
             tabs.forEach(tab => {
                 if (this.isSupportedPlatform(tab.url)) {
                     chrome.tabs.sendMessage(tab.id, { action }, (response) => {
+                        if (chrome.runtime.lastError) {
+                            if (DEV_MODE) {
+                                console.warn('No content script in tab:', tab.id, chrome.runtime.lastError.message);
+                            }
+                            return;
+                        }
                         // Handle response if needed
                     });
                 }
@@ -286,11 +340,8 @@ class BackgroundService {
         const supportedDomains = [
             'twitter.com',
             'x.com',
-            'facebook.com',
-            'instagram.com',
-            'linkedin.com'
+            'instagram.com'
         ];
-        
         return supportedDomains.some(domain => url && url.includes(domain));
     }
     

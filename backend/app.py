@@ -12,6 +12,8 @@ import requests as pyrequests
 from PIL import Image
 from io import BytesIO
 import base64
+from concurrent.futures import ThreadPoolExecutor
+import time
 
 app = Flask(__name__)
 CORS(app)
@@ -30,7 +32,7 @@ s3 = boto3.client(
 )
 
 # Hugging Face zero-shot classifier
-classifier = pipeline("zero-shot-classification", model="facebook/bart-large-mnli")
+classifier = pipeline("zero-shot-classification", model="valhalla/distilbart-mnli-12-1")
 candidate_labels = ["politics", "comedy", "educational", "sports", "entertainment", "technology", "news", 
                 "lifestyle", "music", "gaming", "food", "travel", "fashion", "art", "animals", "memes", "science",
                  "history", "health", "business", "religion", "philosophy", "literature", "mathematics", "physics", 
@@ -43,6 +45,9 @@ if GEMINI_API_KEY:
     gemini_model = genai.GenerativeModel('gemini-1.5-flash')
 else:
     gemini_model = None
+
+# Thread pool executor for background processing
+executor = ThreadPoolExecutor(max_workers=4)
 
 
 def safe_print_value(value, field_name):
@@ -151,12 +156,14 @@ def download_image(url):
 
 def process_item(item):
     """Process a single item and return the topic"""
+    t0 = time.time()
     text = item.get('text', '')
     image_url = item.get('imageUrl') or item.get('mediaUrl')
     image_data = item.get('image_data')  # Direct binary image data
-    
     topic = 'unknown'
-    
+    t1 = t0
+    t2 = t0
+    t3 = t0
     # Handle text classification
     if text and isinstance(text, str):
         try:
@@ -167,21 +174,25 @@ def process_item(item):
         except Exception as e:
             print("Classifier error:", e)
             topic = 'unknown'
-    
+        t1 = time.time()
     # Handle image classification
     elif image_url and isinstance(image_url, str):
+        t1 = time.time()
         print("Processing image from URL for Gemini classification:", image_url)
         image_bytes = download_image(image_url)
+        t2 = time.time()
         if image_bytes:
             topic = classify_image_with_gemini(image_bytes)
-    
+        t3 = time.time()
     # Handle direct binary image data
     elif image_data and isinstance(image_data, bytes):
+        t1 = time.time()
         print("Processing binary image data for Gemini classification")
         topic = classify_image_with_gemini(image_data)
-    
+        t3 = time.time()
     # Handle base64 encoded image data
     elif isinstance(text, str) and text.startswith('data:image/'):
+        t1 = time.time()
         try:
             print("Processing base64 image data")
             # Extract base64 data from data URL
@@ -191,10 +202,11 @@ def process_item(item):
         except Exception as e:
             print("Base64 image processing error:", e)
             topic = 'unknown'
-    
+        t3 = time.time()
     else:
         print("No valid text or image data found for classification")
-    
+    t_end = time.time()
+    print(f"Timing for item: text_classification={t1-t0:.2f}s, image_download={t2-t1:.2f}s, image_classification={t3-t2:.2f}s, total={t_end-t0:.2f}s")
     return topic
 
 
@@ -220,64 +232,45 @@ def append_to_session_file(session_id, post_data):
         print(f"Error writing session file {s3_key}: {e}")
 
 
-@app.route('/collect', methods=['POST'])
-def collect():
+def process_and_store_data(data):
     try:
-        # Get raw data - could be JSON or binary
-        content_type = request.headers.get('Content-Type', '')
-        
-        if 'application/json' in content_type:
-            data = request.json
-        else:
-            # Handle other content types or raw binary data
-            raw_data = request.get_data()
-            try:
-                data = json.loads(raw_data)
-            except:
-                # If it's not JSON, treat as binary image data
-                data = {'image_data': raw_data}
-        
-        # Safe logging of received data
-        try:
-            if isinstance(data, list):
-                print(f"Received batch of {len(data)} items.")
-                for i, item in enumerate(data[:3]):  # Show up to 3 items for preview
-                    safe_print_item(item, i+1)
-                if len(data) > 3:
-                    print(f"...and {len(data)-3} more items.")
-            elif isinstance(data, dict):
-                print("Received single item:")
-                safe_print_item(data)
-            else:
-                print(f"Received data of type: {type(data)}")
-        except Exception as e:
-            print(f"Error during safe logging: {e}")
-            print(f"Data type: {type(data)}, attempting to process anyway...")
-        
         results = []
         items_to_process = data if isinstance(data, list) else [data]
-        
         for item in items_to_process:
             topic = process_item(item)
             item['topic'] = topic
-            
             # Create a safe copy for S3 storage (remove binary data)
             safe_item = {}
             for key, value in item.items():
                 if isinstance(value, bytes):
-                    # Convert binary data to base64 for storage
                     safe_item[key] = base64.b64encode(value).decode('utf-8')
                     safe_item[key + '_type'] = 'base64_binary'
                 else:
                     safe_item[key] = value
-            
-            # Use sessionId to aggregate posts in a single file
             session_id = safe_item.get('sessionId', 'unknown_session')
             append_to_session_file(session_id, safe_item)
             results.append({'session_file': f"data/{session_id}.json", 'topic': topic})
-        
-        return jsonify({'status': 'success', 'results': results})
-        
+        return {'status': 'success', 'results': results}
+    except Exception as e:
+        print("Error in process_and_store_data thread:", e)
+        return {'status': 'error', 'message': str(e)}
+
+
+@app.route('/collect', methods=['POST'])
+def collect():
+    try:
+        content_type = request.headers.get('Content-Type', '')
+        if 'application/json' in content_type:
+            data = request.json
+        else:
+            raw_data = request.get_data()
+            try:
+                data = json.loads(raw_data)
+            except:
+                data = {'image_data': raw_data}
+        # Submit the processing task to the thread pool executor
+        future = executor.submit(process_and_store_data, data)
+        return jsonify({'status': 'queued'})
     except Exception as e:
         print("Error in /collect:", e)
         return jsonify({'status': 'error', 'message': str(e)}), 500

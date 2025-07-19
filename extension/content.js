@@ -57,23 +57,18 @@ class ContentDataCollector {
         const platformMap = {
             'twitter.com': 'Twitter',
             'x.com': 'X',
-            'facebook.com': 'Facebook',
-            'instagram.com': 'Instagram',
-            'linkedin.com': 'LinkedIn'
+            'instagram.com': 'Instagram'
         };
-        
         for (const [domain, platform] of Object.entries(platformMap)) {
             if (url.includes(domain)) {
                 this.platform = platform;
                 break;
             }
         }
-        
         if (!this.platform) {
             console.log('Unsupported platform');
             return;
         }
-        
         console.log(`Social Media Data Collector initialized for ${this.platform}`);
     }
     
@@ -131,40 +126,44 @@ class ContentDataCollector {
     setupObservers() {
         console.log('[DataForGood][DEBUG] setupObservers called for platform:', this.platform, 'isCollecting:', this.isCollecting);
         this.cleanupObservers(); // Clean up any existing observers
-        
         // Set up platform-specific observers
         switch (this.platform) {
             case 'Twitter':
             case 'X':
                 this.setupTwitterObservers();
                 break;
-            case 'Facebook':
-                this.setupFacebookObservers();
-                break;
             case 'Instagram':
                 this.setupInstagramObservers();
-                break;
-            case 'LinkedIn':
-                this.setupLinkedInObservers();
                 break;
         }
     }
     
-    setupTwitterObservers() {
+    async waitForInitialTweets(selector, timeout = 5000) {
+        const start = Date.now();
+        while (Date.now() - start < timeout) {
+            const tweets = document.querySelectorAll(selector);
+            if (tweets.length > 0) return tweets;
+            await new Promise(res => setTimeout(res, 100));
+        }
+        return [];
+    }
+
+    async setupTwitterObservers() {
         // Twitter/X specific selectors
         const tweetSelector = 'article[data-testid="tweet"], [data-testid="tweet"]';
-        // State for currently viewed tweet
-        this.currentTweet = null;
-        this.tweetStartTime = null;
-        this.tweetInteractions = null;
+        // Map to track tweets currently in view and their start times
+        this.tweetViewMap = new Map(); // Map<tweetElement, startTime>
         this.tweetObserver = new IntersectionObserver(this.handleTweetIntersect.bind(this), {
             root: null,
             threshold: 0.6 // Considered "viewed" if 60% visible
         });
-        // Observe all tweets
-        document.querySelectorAll(tweetSelector).forEach(article => {
+
+        // Wait for tweets to appear before observing
+        const initialTweets = await this.waitForInitialTweets(tweetSelector);
+        initialTweets.forEach(article => {
             this.tweetObserver.observe(article);
         });
+
         // Observe new tweets as they load
         const timeline = document.querySelector('[aria-label*="Timeline"]');
         if (timeline) {
@@ -181,30 +180,49 @@ class ContentDataCollector {
 
     handleTweetIntersect(entries) {
         entries.forEach(entry => {
+            const tweetElem = entry.target;
             if (entry.isIntersecting) {
-                // User started viewing a tweet
-                if (this.currentTweet !== entry.target) {
-                    // If we were viewing another tweet, send its data
-                    if (this.currentTweet) {
-                        this.sendTweetSessionData(this.currentTweet);
-                    }
-                    this.currentTweet = entry.target;
-                    this.tweetStartTime = Date.now();
-                    this.tweetInteractions = {
-                        liked: false,
-                        retweeted: false,
-                        replied: false
-                    };
-                    this.attachTweetInteractionListeners(this.currentTweet);
+                // Tweet just came into view
+                if (!this.tweetViewMap.has(tweetElem)) {
+                    this.tweetViewMap.set(tweetElem, Date.now());
+                    this.sendTweetViewData(tweetElem, 'view');
                 }
-            } else if (this.currentTweet === entry.target) {
-                // User stopped viewing the tweet
-                this.sendTweetSessionData(this.currentTweet);
-                this.currentTweet = null;
-                this.tweetStartTime = null;
-                this.tweetInteractions = null;
+            } else {
+                // Tweet just left the view
+                if (this.tweetViewMap.has(tweetElem)) {
+                    const startTime = this.tweetViewMap.get(tweetElem);
+                    const duration = Date.now() - startTime;
+                    this.sendTweetViewData(tweetElem, 'view-end', duration);
+                    this.tweetViewMap.delete(tweetElem);
+                }
             }
         });
+    }
+
+    sendTweetViewData(article, actionType, duration = 0) {
+        // Extract tweet ID
+        let tweetId = null;
+        const link = article.querySelector('a[href*="/status/"]');
+        if (link) {
+            const match = link.href.match(/status\/(\d+)/);
+            tweetId = match ? match[1] : null;
+        }
+        // Extract tweet text
+        let text = '';
+        const textElem = article.querySelector('div[lang]');
+        if (textElem) text = textElem.innerText.trim();
+        const data = {
+            postId: tweetId || this.generatePostId(article),
+            contentType: 'tweet',
+            actionType: actionType, // 'view' or 'view-end'
+            duration: duration,
+            interactions: { liked: false, retweeted: false, replied: false },
+            hasMedia: this.detectMediaContent(article),
+            contentLength: this.estimateContentLength(article),
+            engagementLevel: this.calculateEngagementLevel(duration),
+            text
+        };
+        this.sendDataPoint(data);
     }
 
     attachTweetInteractionListeners(article) {
@@ -257,19 +275,6 @@ class ContentDataCollector {
             text
         };
         this.sendDataPoint(data);
-    }
-    
-    setupFacebookObservers() {
-        // Facebook specific selectors
-        const postSelectors = [
-            '[data-pagelet="FeedUnit"]',
-            '[role="article"]',
-            '.userContentWrapper'
-        ];
-        
-        this.observeElements(postSelectors, (element) => {
-            this.setupFacebookPostInteractions(element);
-        });
     }
     
     setupInstagramObservers() {
@@ -508,157 +513,6 @@ class ContentDataCollector {
             mediaUrl
         };
         this.sendDataPoint(data);
-    }
-    
-    setupLinkedInObservers() {
-        // LinkedIn specific selectors
-        const postSelectors = [
-            '.feed-shared-update-v2',
-            '.occludable-update',
-            '[data-id]'
-        ];
-        
-        this.observeElements(postSelectors, (element) => {
-            this.setupLinkedInPostInteractions(element);
-        });
-    }
-    
-    observeElements(selectors, callback) {
-        const observer = new MutationObserver((mutations) => {
-            mutations.forEach((mutation) => {
-                mutation.addedNodes.forEach((node) => {
-                    if (node.nodeType === Node.ELEMENT_NODE) {
-                        selectors.forEach((selector) => {
-                            const elements = node.matches && node.matches(selector) ? [node] : node.querySelectorAll(selector);
-                            elements.forEach(callback);
-                        });
-                    }
-                });
-            });
-        });
-        
-        observer.observe(document.body, {
-            childList: true,
-            subtree: true
-        });
-        
-        this.observers.push(observer);
-        
-        // Also process existing elements
-        selectors.forEach((selector) => {
-            document.querySelectorAll(selector).forEach(callback);
-        });
-    }
-    
-    setupTweetInteractions(element) {
-        // No-op: replaced by new per-tweet session logic
-    }
-    
-    setupFacebookPostInteractions(element) {
-        if (element.dataset.collectorProcessed) return;
-        element.dataset.collectorProcessed = 'true';
-        const postId = this.generatePostId(element);
-        // Extract Facebook post text
-        let text = '';
-        const textElem = element.querySelector('[data-ad-preview="message"], .userContent');
-        if (textElem) text = textElem.innerText.trim();
-        // Track view
-        this.trackPostView(element, postId, 'facebook-post', text);
-        // Track interactions
-        this.trackClicks(element, postId, {
-            like: '[data-testid="fb-ufi-likelink"]',
-            comment: '[data-testid="fb-ufi-commentlink"]',
-            share: '[data-testid="fb-ufi-sharelink"]'
-        }, text);
-    }
-    
-    setupInstagramPostInteractions(element) {
-        // No-op: replaced by new per-post session logic
-    }
-    
-    setupLinkedInPostInteractions(element) {
-        if (element.dataset.collectorProcessed) return;
-        element.dataset.collectorProcessed = 'true';
-        const postId = this.generatePostId(element);
-        // Extract LinkedIn post text
-        let text = '';
-        const textElem = element.querySelector('.feed-shared-update-v2__description, .break-words');
-        if (textElem) text = textElem.innerText.trim();
-        // Track view
-        this.trackPostView(element, postId, 'linkedin-post', text);
-        // Track interactions
-        this.trackClicks(element, postId, {
-            like: '.react-button__trigger',
-            comment: '.comment-button',
-            share: '.share-button'
-        }, text);
-    }
-    
-    trackPostView(element, postId, contentType, text = '') {
-        const observer = new IntersectionObserver((entries) => {
-            entries.forEach((entry) => {
-                if (entry.isIntersecting) {
-                    if (!this.viewedPosts.has(postId)) {
-                        this.viewedPosts.add(postId);
-                        const startTime = Date.now();
-                        const hasMedia = this.detectMediaContent(element);
-                        const contentLength = this.estimateContentLength(element);
-                        // Track initial view
-                        this.sendDataPoint({
-                            postId,
-                            contentType,
-                            actionType: 'view',
-                            duration: 0,
-                            hasMedia,
-                            contentLength,
-                            engagementLevel: 'low',
-                            text
-                        });
-                        // Track view duration
-                        const exitObserver = new IntersectionObserver((exitEntries) => {
-                            exitEntries.forEach((exitEntry) => {
-                                if (!exitEntry.isIntersecting) {
-                                    const duration = Date.now() - startTime;
-                                    this.sendDataPoint({
-                                        postId,
-                                        contentType,
-                                        actionType: 'view-end',
-                                        duration,
-                                        hasMedia,
-                                        contentLength,
-                                        engagementLevel: this.calculateEngagementLevel(duration),
-                                        text
-                                    });
-                                    exitObserver.disconnect();
-                                }
-                            });
-                        });
-                        exitObserver.observe(element);
-                    }
-                }
-            });
-        });
-        observer.observe(element);
-    }
-    
-    trackClicks(element, postId, selectors, text = '') {
-        Object.entries(selectors).forEach(([action, selector]) => {
-            const buttons = element.querySelectorAll(selector);
-            buttons.forEach((button) => {
-                button.addEventListener('click', (e) => {
-                    this.sendDataPoint({
-                        postId,
-                        contentType: this.getContentType(element),
-                        actionType: action,
-                        duration: 0,
-                        hasMedia: this.detectMediaContent(element),
-                        contentLength: this.estimateContentLength(element),
-                        engagementLevel: 'high',
-                        text
-                    });
-                }, { once: false });
-            });
-        });
     }
     
     setupEventListeners() {
